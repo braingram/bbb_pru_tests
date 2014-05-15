@@ -14,6 +14,13 @@ START:
     CLR  r0, r0, 4		// clear prucfg bit 4 (enable L3 interconnect)
     SBCO r0, C4, 4, 4		// enable L3 interconnect
 
+    MOV  r0, 0x0120		// offset sbbo lbbo to shared memory (0x0100) + other pru (0x20)
+    MOV  r1, 0x00022028
+    SBBO r0, r1, 0, 4		// writes 0x0120 to 0x00022028, pru0
+    MOV  r1, 0x00024028
+    SBBO r0, r1, 0, 4		// writes 0x0120 to 0x00024028, pru1
+
+
 READ_PARAMS:
     // read blink count and duration (in ticks)
     LBCO r0, C28, 0, 8		// reads in r0 (count) and r1 (duration)

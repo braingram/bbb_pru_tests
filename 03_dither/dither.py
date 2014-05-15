@@ -16,12 +16,17 @@ A 'reasonable' target would be:
 How am I doing on registers?
 dither and period can be shared
 """
+import time
 
 import struct
 import mmap
 
 import numpy
-import pylab
+try:
+    import pylab
+    has_pylab = True
+except ImportError:
+    has_pylab = False
 
 try:
     import pypruss
@@ -30,7 +35,7 @@ except ImportError:
     has_pru = False
 
 
-PRU_ICSS = 0x4A300000
+PRU_ICSS = 0x4A300000 
 PRU_ICSS_LEN = 512*1024
 
 SHAREDRAM_START = 0x00012000
@@ -144,6 +149,8 @@ def build_pwm(period, oncount, ddelta, dvalue,
 
 
 def plot(vs, period=1.):
+    if not has_pylab:
+        return
     ax = pylab.subplot(211)
     pylab.plot(vs[:, 0], vs[:, 1])
     pylab.ylim(-0.1, 1.1)
@@ -221,25 +228,47 @@ def set_shared_ram(values, offset=0):
         ddr_mem = mmap.mmap(f.fileno(), PRU_ICSS_LEN, offset=PRU_ICSS)
         offset += SHAREDRAM_START
         for v in values:
+            print("write %s to [%s:%s]" % (int(v), hex(offset), hex(offset+4)))
             ddr_mem[offset:offset+4] = struct.pack('L', int(v))
             offset += 4
+
+
+def get_shared_ram(n=1, offset=0):
+    if not has_pru:
+        return
+    if n == 0:
+        return []
+    with open("/dev/mem", "r+b") as f:
+        ddr_mem = mmap.mmap(f.fileno(), PRU_ICSS_LEN, offset=PRU_ICSS)
+        offset += SHAREDRAM_START
+        values = []
+        while len(values) != n:
+            v = struct.unpack('L', ddr_mem[offset:offset+4])[0]
+            print("read %s from [%s:%s]" % (int(v), hex(offset), hex(offset+4)))
+            values.append(v)
+            offset += 4
+    return values
 
 
 def run_pru():
     if not has_pru:
         return
+    pypruss.modprobe()
     pypruss.init()
     pypruss.open(0)  # Open PRU event 0 which is PRU0_ARM_INTERRUPT
     pypruss.pruintc_init()  # Init the interrupt controller
     # Load firmware "mem_transfer.bin" on PRU 0
-    pypruss.exec_program(1, "./pwmdither.bin")
+    pypruss.exec_program(0, "./pwmdither.bin")
+
+
+def wait_for_pru():
     # Wait for event 0 which is connected to PRU0_ARM_INTERRUPT
     pypruss.wait_for_event(0)
     pypruss.clear_event(0)  # Clear the event
     pypruss.exit()  # Exit
 
 
-def hw_test(duties=None, f=2000, df=200, dmax=0.1, ticks_per_update=21):
+def hw_set_pwm(duties=None, f=2000, df=200, dmax=0.1, ticks_per_update=21):
     if duties is None:
         duties = [0., 0.2, 0.4, 0.6, 0.8, 1.0]
     print("=== input values ===")
@@ -269,7 +298,7 @@ def hw_test(duties=None, f=2000, df=200, dmax=0.1, ticks_per_update=21):
     for (i, o) in enumerate(oncounts):
         if o != 0:
             enable += 1 << i
-    failsafe = 50000  # run for 10 second
+    failsafe = 25000  # run for n cycles
     # PERIOD DDELTA DVALUE ON0 ON1 ON2 ON3 ON4 ON5 FS EN
     print("=== computed values ===")
     print("Oncounts    : %s" % oncounts)
@@ -281,3 +310,23 @@ def hw_test(duties=None, f=2000, df=200, dmax=0.1, ticks_per_update=21):
     vs = [period, ddelta, dvalue] + oncounts + [failsafe, enable]
 
     set_shared_ram(vs)
+
+
+def hw_test():
+    duties = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    print("setting duties to: %s" % duties)
+    hw_set_pwm(duties)
+    run_pru()
+    for _ in xrange(6):
+        duties = duties[1:] + [duties[0]]
+        time.sleep(2)
+        print("setting duties to: %s" % duties)
+        hw_set_pwm(duties)
+    wait_for_pru()
+    vs = get_shared_ram(13)
+    for (i, v) in enumerate(vs):
+        print("\t%02i: %s[%s]" % (i, v, hex(v)))
+
+if __name__ == '__main__':
+    if has_pru:
+        hw_test()

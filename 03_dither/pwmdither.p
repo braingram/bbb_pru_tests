@@ -52,9 +52,15 @@ START:  // do some 1 time setup
     CLR  r0, r0, 4		// clear prucfg bit 4 (enable L3 interconnect)
     SBCO r0, C4, 4, 4		// enable L3 interconnect
 
+    MOV  r0, 0x0120		// offset sbbo lbbo to shared memory (0x0100) + other pru (0x20)
+    MOV  r1, 0x00022028
+    SBBO r0, r1, 0, 4		// writes 0x0120 to 0x00022028, pru0
+    MOV  r1, 0x00024028
+    SBBO r0, r1, 0, 4		// writes 0x0120 to 0x00024028, pru1
+
     // TODO these will need to be reset when dither settings change
     ZERO &DV, 4
-    MOV DVD, 1
+    MOV DVD, 0x0001
 
 READVALUES: // 11 ops
     // read parameters
@@ -74,7 +80,7 @@ SETOUTPUTS: // 9 ops
     QBEQ ABORT, FAILSAFE, 0         // has failsafe counter elapsed?
     SUB FAILSAFE, FAILSAFE, 1       // decrement failsafe counter
     // set outputs to enable buffer
-    MOV r30, ENABLE                 // TODO set only a subset of bytes?
+    MOV r30.w0, ENABLE.w0                 // TODO set only a subset of bytes?
     // set oncounts to oncount + dv
     ADD ONCOUNT0, ONCOUNT0, DV
     ADD ONCOUNT1, ONCOUNT1, DV
@@ -118,19 +124,24 @@ RESETPERIOD: // 5 ops
     QBEQ INCDITHER, DVD, 1
     SUB DV, DV, DDELTA
     // dv = 0? dvd = 1
-    QBNE READVALUES, DV, 0
+    QBNE UPDATEFAILSAFE, DV, 0
     MOV DVD, 1
-    QBA READVALUES
+    QBA UPDATEFAILSAFE
 
 INCDITHER:  // 4 ops
     ADD DV, DV, DDELTA
     // dv = dvalue? dvd = 0
-    QBLT READVALUES, DV, DVALUE
+    QBLT UPDATEFAILSAFE, DV, DVALUE
     MOV DVD, 0
+    QBA UPDATEFAILSAFE
+
+UPDATEFAILSAFE:
+    // write out failsafe
+    SBCO FAILSAFE, C28, 36, 4
     QBA READVALUES
 
 ABORT:
-    ZERO &r30, 4
+    MOV r30.b0, 0x00
     MOV R31.b0, PRU0_ARM_INTERRUPT+16   // Send notification to Host for program completion
 
 HALT
