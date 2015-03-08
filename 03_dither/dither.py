@@ -41,6 +41,45 @@ def calculate_pwm(duty, f=2000, df=200, dmax=0.1, bits=10, cycle_time=100):
     return period, oncount, ddelta, dvalue
 
 
+def build_pwm2(period, oncount, ddelta, dvalue, ncycles=20):
+    # on cpu
+    enable = oncount != 0
+
+    # setup (done once)
+    #period -= 1
+    dvd = 1
+    dv = 0
+
+    nvalues = int(period * ncycles)  # na
+    values = numpy.zeros((nvalues, 2))  # na
+    values[:, 0] = numpy.arange(nvalues)  # na
+
+    # start of loop
+    vi = 0  # na
+    while vi < nvalues:
+        v = enable
+        oc = oncount + dv
+        pc = period
+        while pc > 0:
+            values[vi, 1] = v
+            vi += 1
+            if oc == 0:
+                v = 0
+            pc -= 1
+            oc -= 1
+        if dvd:
+            dv += ddelta
+        else:
+            dv -= ddelta
+        if dv == 0:
+            dvd = 1
+        if dv >= dvalue:
+            dvd = 0
+        if dv < 0:
+            raise Exception
+    return values
+
+
 def build_pwm(period, oncount, ddelta, dvalue,
               cycle_time=100, ncycles=20):
     print("Period: %s" % period)
