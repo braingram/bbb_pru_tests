@@ -51,7 +51,7 @@ START:  // do some 1 time setup
     SBCO r0, C4, 4, 4		// enable L3 interconnect
 
     // TODO these will need to be reset when dither settings change
-    ZERO DV, 4
+    ZERO &DV, 4
     MOV DVD, 1
 
 READVALUES: // 11 ops
@@ -126,5 +126,9 @@ INCDITHER:  // 4 ops
     QBLT READVALUES, DV, DVALUE
     MOV DVD, 0
     QBA READVALUES
+
+ABORT:
+    ZERO &r30, 4
+    // TODO issue interrupt
 
 HALT
