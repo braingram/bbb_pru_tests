@@ -17,8 +17,23 @@ How am I doing on registers?
 dither and period can be shared
 """
 
+import struct
+import mmap
+
 import numpy
 import pylab
+
+try:
+    import pypruss
+    has_pru = True
+except ImportError:
+    has_pru = False
+
+
+PRU_ICSS = 0x4A300000
+PRU_ICSS_LEN = 512*1024
+
+SHAREDRAM_START = 0x00012000
 
 bits = 10
 pwmfreq = 5000
@@ -38,7 +53,8 @@ def calculate_pwm(duty, f=2000, df=200, dmax=0.1, bits=10, cycle_time=100):
     dperiod = period * f / float(df)  # pru ticks per dither period
     dvalue = period * dmax  # dither by percent of period
     ddelta = 2 * dvalue * df / f  # per period oncount change
-    return period, oncount, ddelta, dvalue
+    # TODO floor or ceiling some of these?
+    return int(period), oncount, int(ddelta), int(dvalue)
 
 
 def build_pwm2(period, oncount, ddelta, dvalue, ncycles=20):
@@ -198,3 +214,70 @@ def pwm(duty, f=5000, df=200, bits=10, ticks_per_update=20):
     return values
 
 
+def set_shared_ram(values, offset=0):
+    if not has_pru:
+        return
+    with open("/dev/mem", "r+b") as f:
+        ddr_mem = mmap.mmap(f.fileno(), PRU_ICSS_LEN, offset=PRU_ICSS)
+        offset += SHAREDRAM_START
+        for v in values:
+            ddr_mem[offset:offset+4] = struct.pack('L', int(v))
+            offset += 4
+
+
+def run_pru():
+    if not has_pru:
+        return
+    pypruss.init()
+    pypruss.open(0)  # Open PRU event 0 which is PRU0_ARM_INTERRUPT
+    pypruss.pruintc_init()  # Init the interrupt controller
+    # Load firmware "mem_transfer.bin" on PRU 0
+    pypruss.exec_program(1, "./pwmdither.bin")
+    # Wait for event 0 which is connected to PRU0_ARM_INTERRUPT
+    pypruss.wait_for_event(0)
+    pypruss.clear_event(0)  # Clear the event
+    pypruss.exit()  # Exit
+
+
+def hw_test(duties=None, f=2000, df=200, dmax=0.1, ticks_per_update=21):
+    if duties is None:
+        duties = [0., 0.2, 0.4, 0.6, 0.8, 1.0]
+    print("=== input values ===")
+    print("Frequency: %s" % f)
+    print("Dither frequency: %s" % df)
+    print("Dither amplitude: %s" % dmax)
+    print("Setting duty cycles: %s" % duties)
+    cycle_time = ticks_per_update * 5.
+    rs = []
+    for d in duties:
+        rs.append(calculate_pwm(
+            d, f, df, dmax, bits=10., cycle_time=cycle_time))
+        #period, oncount, ddelta, dvalue = r
+    # TODO check calculated values
+    periods = set([r[0] for r in rs])
+    assert len(periods) == 1
+    period = list(periods)[0]
+    ddeltas = set([r[2] for r in rs])
+    assert len(ddeltas) == 1
+    ddelta = list(ddeltas)[0]
+    dvalues = set([r[3] for r in rs])
+    assert len(dvalues) == 1
+    dvalue = list(dvalues)[0]
+    oncounts = [r[1] for r in rs]
+    # compute enable
+    enable = 0
+    for (i, o) in enumerate(oncounts):
+        if o != 0:
+            enable += 1 << i
+    failsafe = 50000  # run for 10 second
+    # PERIOD DDELTA DVALUE ON0 ON1 ON2 ON3 ON4 ON5 FS EN
+    print("=== computed values ===")
+    print("Oncounts    : %s" % oncounts)
+    print("Cycle period: %s" % period)
+    print("Dither delta: %s" % ddelta)
+    print("Dither value: %s" % dvalue)
+    print("Failsafe    : %s" % failsafe)
+    print("Enable      : %s" % bin(enable))
+    vs = [period, ddelta, dvalue] + oncounts + [failsafe, enable]
+
+    set_shared_ram(vs)

@@ -27,6 +27,8 @@
 // period reset: 11 or 13 ops to get to read values, +14 to get to enable [25-27 ops]
 //      : 125 - 135 ns
 
+#define PRU0_ARM_INTERRUPT 19
+
 #define PERIOD r0
 #define DDELTA r1
 #define DVALUE r2
@@ -129,6 +131,6 @@ INCDITHER:  // 4 ops
 
 ABORT:
     ZERO &r30, 4
-    // TODO issue interrupt
+    MOV R31.b0, PRU0_ARM_INTERRUPT+16   // Send notification to Host for program completion
 
 HALT
