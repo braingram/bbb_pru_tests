@@ -38,10 +38,11 @@
 #define ONCOUNT3 r6
 #define ONCOUNT4 r7
 #define ONCOUNT5 r8
-#define FAILSAFE r9
+#define FAILSAFE_COUNT r9
 #define ENABLE r10
 #define DVD r11
 #define DV r12
+#define FAILSAFE r13
 
 .origin 0
 .entrypoint START
@@ -68,17 +69,26 @@ READVALUES: // 11 ops
     // r1 : ddelta
     // r2 : dvalue
     // r3, 4, 5, 6, 7, 8 : on periods
-    // r9 : failsafe
+    // r9 : failsafe_count
     // r10 : enable (pre-calculated)
     // r11 : dvd
     // r12 : dv
 
     LBCO r0, C28, 0, 44		// reads in r0-10 from shared ram
     // TODO what to do when dither changes, need to reset DV and DVD
+    QBNE SET_FAILSAFE, FAILSAFE_COUNT, 0
+    QBA CHECK_FAILSAFE
+
+SET_FAILSAFE:
+    MOV FAILSAFE, FAILSAFE_COUNT
+    ZERO &FAILSAFE_COUNT, 4
+    SBCO FAILSAFE_COUNT, C28, 36, 4
+
+CHECK_FAILSAFE:
+    QBEQ ABORT, FAILSAFE, 0
+    SUB FAILSAFE, FAILSAFE, 1
 
 SETOUTPUTS: // 9 ops
-    QBEQ ABORT, FAILSAFE, 0         // has failsafe counter elapsed?
-    SUB FAILSAFE, FAILSAFE, 1       // decrement failsafe counter
     // set outputs to enable buffer
     MOV r30.w0, ENABLE.w0                 // TODO set only a subset of bytes?
     // set oncounts to oncount + dv
@@ -124,20 +134,15 @@ RESETPERIOD: // 5 ops
     QBEQ INCDITHER, DVD, 1
     SUB DV, DV, DDELTA
     // dv = 0? dvd = 1
-    QBNE UPDATEFAILSAFE, DV, 0
+    QBNE READVALUES, DV, 0
     MOV DVD, 1
-    QBA UPDATEFAILSAFE
+    QBA READVALUES
 
 INCDITHER:  // 4 ops
     ADD DV, DV, DDELTA
     // dv = dvalue? dvd = 0
-    QBLT UPDATEFAILSAFE, DVALUE, DV
+    QBLT READVALUES, DVALUE, DV
     MOV DVD, 0
-    QBA UPDATEFAILSAFE
-
-UPDATEFAILSAFE:
-    // write out failsafe
-    SBCO FAILSAFE, C28, 36, 4
     QBA READVALUES
 
 ABORT:

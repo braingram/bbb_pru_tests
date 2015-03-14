@@ -298,7 +298,8 @@ def hw_set_pwm(duties=None, f=2000, df=200, dmax=0.1, ticks_per_update=21):
     for (i, o) in enumerate(oncounts):
         if o != 0:
             enable += 1 << i
-    failsafe = 100  # run for n cycles
+    #failsafe = 25000  # run for n cycles
+    failsafe = 3000  # run for n cycles
     # PERIOD DDELTA DVALUE ON0 ON1 ON2 ON3 ON4 ON5 FS EN
     print("=== computed values ===")
     print("Oncounts    : %s" % oncounts)
@@ -313,6 +314,17 @@ def hw_set_pwm(duties=None, f=2000, df=200, dmax=0.1, ticks_per_update=21):
 
 
 def hw_test():
+    #hw_set_pwm([0.5, 0.25, 0.0, 0.75, 1.0, 0.6])
+    hw_set_pwm([0.1] * 6)
+    run_pru()
+    try:
+        while True:
+            time.sleep(1)
+            hw_set_pwm([0.1] * 6)
+            #hw_set_pwm([0.5, 0.25, 0.0, 0.75, 1.0, 0.6])
+    except KeyboardInterrupt:
+        wait_for_pru()
+    return
     duties = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
     print("setting duties to: %s" % duties)
     hw_set_pwm(duties)
